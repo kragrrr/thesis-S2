@@ -1,0 +1,150 @@
+# ============================================================
+#  PV Module Anomaly Detection — Master Configuration
+#  Optimized for NVIDIA RTX 4090 (24 GB VRAM)
+# ============================================================
+# Every tunable knob lives here.  The numbered scripts read
+# this file at startup, so you only need to edit ONE place.
+# ============================================================
+
+# ── Hardware ────────────────────────────────────────────────
+device: "0"                        # CUDA device id, or "cpu"
+num_workers: 12                    # DataLoader workers
+amp: true                          # Automatic Mixed Precision
+seed: 42
+
+# ── Paths ───────────────────────────────────────────────────
+paths:
+  data_root: "./data"              # downloaded / prepared datasets
+  output_root: "./outputs"         # models, plots, logs, exports
+
+# ── Dataset Sources ─────────────────────────────────────────
+datasets:
+  raptor:
+    git_url: "https://github.com/RaptorMaps/InfraredSolarModules.git"
+  zenodo:
+    record_id: "16420123"
+    # If the Zenodo REST API fails, put a direct download URL here:
+    # direct_url: "https://zenodo.org/records/16420123/files/dataset.zip"
+
+# ── Data Preparation ────────────────────────────────────────
+data_prep:
+  raptor:
+    image_size: [64, 64]           # [H, W] after padding / resize
+    padding_mode: "zero"           # "zero" = zero-pad to square, "resize" = direct resize
+    train_split: 0.8
+  zenodo_uav:
+    crop_padding: 0.05             # fractional padding around YOLO boxes
+    inner_crop_pct: 0.15           # shave top/bottom N% to remove background
+    slice_ar_threshold: 1.5        # slice wide panels if aspect ratio > this
+
+# ── YOLO 3-Stage Pipeline ──────────────────────────────────
+yolo:
+  # Stage 0 — Panel Detector (object detection)
+  stage0:
+    enabled: true
+    model: "yolo26x.pt"
+    epochs: 50
+    imgsz: 640
+    batch: 32                      # 4090: safe at 640 px
+    patience: 10
+    optimizer: "auto"
+    lr0: 0.01
+    lrf: 0.01
+    augment:
+      mosaic: 1.0
+      flipud: 0.5
+      fliplr: 0.5
+      degrees: 15.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+
+  # Stage 1 — Binary Sorter  (Healthy / Defective)
+  stage1:
+    enabled: true
+    model: "yolo26x-cls.pt"
+    epochs: 30
+    imgsz: 64
+    batch: 2048                    # tiny images ⇒ huge batch fits in 24 GB
+    patience: 10
+    optimizer: "auto"
+    lr0: 0.001667
+    weight_decay: 0.008
+    augment:
+      auto_augment: "randaugment"
+      fliplr: 0.5
+      flipud: 0.5
+      degrees: 15.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      mosaic: 1.0
+      mixup: 0.15
+      erasing: 0.4
+      scale: 0.5
+      translate: 0.1
+
+  # Stage 2 — Defect Diagnostician  (11 anomaly classes)
+  stage2:
+    enabled: true
+    model: "yolo26x-cls.pt"
+    epochs: 60
+    imgsz: 64
+    batch: 2048
+    patience: 15
+    optimizer: "auto"
+    lr0: 0.000667
+    weight_decay: 0.008
+    augment:
+      auto_augment: "randaugment"
+      fliplr: 0.5
+      flipud: 0.5
+      degrees: 15.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      mosaic: 1.0
+      mixup: 0.15
+      erasing: 0.4
+      scale: 0.5
+      translate: 0.1
+
+# ── SupCon Pipeline ─────────────────────────────────────────
+supcon:
+  encoder: "resnet34"
+  pretrained: true
+  embed_dim: 128
+  proj_hidden: 512               # projection head hidden dim
+
+  epochs: 200
+  batch_size: 512                # 4090: fits 512 at 64 px easily
+  lr: 0.06
+  momentum: 0.9
+  weight_decay: 0.0005
+  temperature: 0.07
+  scheduler: "cosine"
+  imgsz: 64
+  weighted_sampling: true        # inverse-frequency for class imbalance
+
+  standardize: true                # per-dataset mean/std (as in Bommes et al.)
+
+  augment:
+    horizontal_flip: true
+    vertical_flip: true
+    random_rotation_90: true       # rotate by multiples of 90° (paper §IV-C.3)
+    random_erasing: 0.3
+    gaussian_blur_kernel: 3
+
+  knn:
+    k_values: [5, 25, 50, 100, 200]
+    best_k: 100
+    metric: "cosine"
+    decision_threshold: 0.1        # δ: fraction of anomaly neighbours (paper §IV-B)
+    anomaly_distance_threshold: 0.5
+
+# ── Plotting ────────────────────────────────────────────────
+plots:
+  dpi: 150
+  figsize: [10, 8]
+  style: "seaborn-v0_8-whitegrid"
+  save_format: "png"

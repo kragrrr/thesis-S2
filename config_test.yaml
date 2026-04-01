@@ -1,0 +1,133 @@
+# ============================================================
+#  LOCAL SMOKE TEST — CPU / MPS, minimal data, 1-2 epochs
+#  Verifies the full pipeline runs end-to-end without errors.
+# ============================================================
+
+device: "cpu"
+num_workers: 0                     # 0 = main process only (safest for testing)
+amp: false                         # no AMP on CPU
+seed: 42
+
+paths:
+  data_root: "./test_data"
+  output_root: "./test_outputs"
+
+datasets:
+  raptor:
+    git_url: "https://github.com/RaptorMaps/InfraredSolarModules.git"
+  zenodo:
+    record_id: "16420123"
+
+data_prep:
+  raptor:
+    image_size: [64, 64]
+    padding_mode: "zero"
+    train_split: 0.8
+  zenodo_uav:
+    crop_padding: 0.05
+    inner_crop_pct: 0.15
+    slice_ar_threshold: 1.5
+
+yolo:
+  stage0:
+    enabled: false                 # skip detection — needs Zenodo download
+    model: "yolo26x.pt"
+    epochs: 1
+    imgsz: 640
+    batch: 2
+    patience: 1
+    optimizer: "auto"
+    lr0: 0.01
+    lrf: 0.01
+    augment:
+      mosaic: 0.0
+      flipud: 0.0
+      fliplr: 0.5
+      degrees: 0.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+
+  stage1:
+    enabled: true
+    model: "yolo11n-cls.pt"        # nano model for fast local test
+    epochs: 2
+    imgsz: 64
+    batch: 32
+    patience: 2
+    optimizer: "auto"
+    lr0: 0.001
+    weight_decay: 0.008
+    augment:
+      auto_augment: "randaugment"
+      fliplr: 0.5
+      flipud: 0.0
+      degrees: 0.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      mosaic: 0.0
+      mixup: 0.0
+      erasing: 0.0
+      scale: 0.5
+      translate: 0.1
+
+  stage2:
+    enabled: true
+    model: "yolo11n-cls.pt"
+    epochs: 2
+    imgsz: 64
+    batch: 32
+    patience: 2
+    optimizer: "auto"
+    lr0: 0.0006
+    weight_decay: 0.008
+    augment:
+      auto_augment: "randaugment"
+      fliplr: 0.5
+      flipud: 0.0
+      degrees: 0.0
+      hsv_h: 0.015
+      hsv_s: 0.7
+      hsv_v: 0.4
+      mosaic: 0.0
+      mixup: 0.0
+      erasing: 0.0
+      scale: 0.5
+      translate: 0.1
+
+supcon:
+  encoder: "resnet34"
+  pretrained: true
+  embed_dim: 128
+  proj_hidden: 512
+  epochs: 2                        # just 2 epochs for smoke test
+  batch_size: 32
+  lr: 0.06
+  momentum: 0.9
+  weight_decay: 0.0005
+  temperature: 0.07
+  scheduler: "cosine"
+  imgsz: 64
+  weighted_sampling: true
+  standardize: true
+
+  augment:
+    horizontal_flip: true
+    vertical_flip: true
+    random_rotation_90: true
+    random_erasing: 0.3
+    gaussian_blur_kernel: 3
+
+  knn:
+    k_values: [5, 25]
+    best_k: 5                      # small k for tiny test set
+    metric: "cosine"
+    decision_threshold: 0.1
+    anomaly_distance_threshold: 0.5
+
+plots:
+  dpi: 72
+  figsize: [8, 6]
+  style: "seaborn-v0_8-whitegrid"
+  save_format: "png"

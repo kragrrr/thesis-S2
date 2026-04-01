@@ -1,0 +1,147 @@
+"""Shared utilities for the PV anomaly-detection pipeline."""
+
+from __future__ import annotations
+
+import os
+import platform
+import random
+import sys
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
+import torch
+import yaml
+
+IS_WINDOWS = platform.system() == "Windows"
+
+# Ensure UTF-8 output on Windows (avoids UnicodeEncodeError for ✓/✗/⚙/⚠ symbols)
+if IS_WINDOWS:
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+# ── Canonical class vocabulary ──────────────────────────────
+
+CLASS_NAMES_12 = [
+    "Cell", "Cell-Multi", "Cracking", "Hot-Spot",
+    "Hot-Spot-Multi", "Shadowing", "Diode", "Diode-Multi",
+    "Vegetation", "Soiling", "Offline-Module", "No-Anomaly",
+]
+
+DEFECT_CLASSES = CLASS_NAMES_12[:11]
+HEALTHY_CLASSES = ["No-Anomaly"]
+
+SEVERE_DEFECTS = {
+    "Hot-Spot", "Hot-Spot-Multi", "Diode", "Diode-Multi",
+    "Cracking", "Offline-Module",
+}
+MILD_DEFECTS = {"Cell", "Cell-Multi", "Shadowing", "Soiling", "Vegetation"}
+
+SCRIPT_DIR = Path(__file__).resolve().parent.parent  # …/scripts/
+
+
+# ── Safe Unicode printing (Windows cmd.exe fallback) ────────
+
+_UNICODE_MAP = {"✓": "[OK]", "✗": "[FAIL]", "⚙": "[*]", "⚠": "[!]", "→": "->"}
+
+def safe_print(*args, **kwargs) -> None:
+    """Print that gracefully degrades Unicode symbols on Windows cmd.exe."""
+    if IS_WINDOWS:
+        try:
+            "✓".encode(sys.stdout.encoding or "utf-8")
+        except (UnicodeEncodeError, LookupError):
+            args = tuple(
+                _replace_unicode(str(a)) for a in args
+            )
+    print(*args, **kwargs)
+
+
+def _replace_unicode(text: str) -> str:
+    for sym, repl in _UNICODE_MAP.items():
+        text = text.replace(sym, repl)
+    return text
+
+
+# ── Multiprocessing helpers ──────────────────────────────────
+
+def safe_num_workers(cfg: dict) -> int:
+    """Return num_workers capped for the current OS.
+
+    Windows uses 'spawn' multiprocessing which is slower and more fragile
+    than Unix 'fork'. Cap to 0-4 workers to avoid BrokenPipeError / hangs.
+    """
+    nw = cfg.get("num_workers", 4)
+    if IS_WINDOWS:
+        nw = min(nw, 4)
+    return nw
+
+
+# ── Config helpers ──────────────────────────────────────────
+
+def load_config(path: str | Path | None = None) -> dict:
+    if path is None:
+        path = SCRIPT_DIR / "config.yaml"
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def resolve_path(cfg_path: str, base: Path | None = None) -> Path:
+    """Turn a possibly-relative config path into an absolute one."""
+    p = Path(cfg_path)
+    if p.is_absolute():
+        return p
+    return (base or SCRIPT_DIR) / p
+
+
+def get_data_dir(cfg: dict, *parts: str) -> Path:
+    d = resolve_path(cfg["paths"]["data_root"]) / Path(*parts)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_output_dir(cfg: dict, *parts: str) -> Path:
+    d = resolve_path(cfg["paths"]["output_root"]) / Path(*parts)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# ── Reproducibility ─────────────────────────────────────────
+
+def seed_everything(seed: int = 42) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# ── Device helper ───────────────────────────────────────────
+
+def get_device(cfg: dict) -> torch.device:
+    dev = str(cfg.get("device", "0"))
+    if dev == "cpu" or not torch.cuda.is_available():
+        print("⚙  Using CPU")
+        return torch.device("cpu")
+    idx = int(dev)
+    props = torch.cuda.get_device_properties(idx)
+    print(f"⚙  GPU {idx}: {props.name}  ({props.total_mem / 1e9:.1f} GB)")
+    return torch.device(f"cuda:{idx}")
+
+
+# ── Timestamp tag (used by export) ──────────────────────────
+
+def timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+# ── Pretty banner ───────────────────────────────────────────
+
+def banner(text: str) -> None:
+    rule = "=" * 60
+    print(f"\n{rule}\n  {text}\n{rule}\n")
