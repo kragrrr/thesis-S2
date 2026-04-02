@@ -23,8 +23,8 @@ datasets:
     git_url: "https://github.com/RaptorMaps/InfraredSolarModules.git"
   zenodo:
     record_id: "16420123"
-    # If the Zenodo REST API fails, put a direct download URL here:
-    # direct_url: "https://zenodo.org/records/16420123/files/dataset.zip"
+    # If the Zenodo REST API fails, use the file's "Download" link from the record page, e.g.:
+    # direct_url: "https://zenodo.org/api/records/16420123/files/Thermal%20PV%20Panel%20Detection%20Dataset%20for%20UAV%20Inspection.zip/content"
 
 # ── Data Preparation ────────────────────────────────────────
 data_prep:

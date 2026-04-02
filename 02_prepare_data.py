@@ -159,17 +159,27 @@ def prepare_zenodo(cfg: dict) -> None:
     data_root = get_data_dir(cfg)
     zenodo_raw = data_root / "zenodo_raw"
 
-    # Try to find the dataset root (may be nested)
+    # Try to find the dataset root (may be nested under long folder names)
     candidates = [
         zenodo_raw,
-        *list(zenodo_raw.glob("*")),
-        *list(zenodo_raw.glob("*/*")),
+        *sorted(zenodo_raw.glob("*")),
+        *sorted(zenodo_raw.glob("*/*")),
     ]
     dataset_root = None
     for c in candidates:
-        if (c / "train" / "images").exists() or (c / "train" / "labels").exists():
+        if (c / "train" / "images").is_dir():
             dataset_root = c
             break
+
+    # Deeper layouts: …/Thermal …/train/images (zip added one extra folder level)
+    if dataset_root is None:
+        for train_imgs in zenodo_raw.rglob("train/images"):
+            if not train_imgs.is_dir():
+                continue
+            cand = train_imgs.parent.parent
+            if (cand / "train" / "labels").is_dir():
+                dataset_root = cand
+                break
 
     if dataset_root is None:
         print("  ⚠  Zenodo UAV dataset not found.")

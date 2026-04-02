@@ -18,6 +18,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 from tqdm import tqdm
@@ -106,16 +107,41 @@ def download_zenodo(cfg: dict) -> Path:
     direct_url = ds_cfg.get("direct_url")
     record_id = ds_cfg.get("record_id")
 
+    file_jobs: list[tuple[str, str]] = []
+
     if direct_url:
-        file_urls = [direct_url]
+        du = direct_url.strip()
+        fname = du.split("/")[-1].split("?")[0] or "dataset.bin"
+        file_jobs = [(du, fname)]
     elif record_id:
         print(f"  Querying Zenodo API for record {record_id} …")
         api_url = f"https://zenodo.org/api/records/{record_id}"
         resp = requests.get(api_url, timeout=30)
         resp.raise_for_status()
         record = resp.json()
-        file_urls = [f["links"]["self"] for f in record.get("files", [])]
-        if not file_urls:
+        file_entries = list(record.get("files") or [])
+        # Zenodo RDM may omit embedded files — follow collection link
+        if not file_entries and record.get("links", {}).get("files"):
+            files_resp = requests.get(record["links"]["files"], timeout=30)
+            files_resp.raise_for_status()
+            payload = files_resp.json()
+            file_entries = payload.get("entries") or payload.get("hits", {}).get("hits") or []
+
+        # links["self"] is …/filename.zip/content — basename would be "content", so use "key"
+        for fmeta in file_entries:
+            link = fmeta.get("links") or {}
+            url = link.get("self")
+            if not url:
+                continue
+            name = fmeta.get("key")
+            if not name and url.rstrip("/").endswith("/content"):
+                parts = url.rstrip("/").split("/")
+                name = parts[-2] if len(parts) >= 2 else "download.bin"
+            if not name:
+                name = url.split("/")[-1].split("?")[0]
+            file_jobs.append((url, name))
+
+        if not file_jobs:
             print("  ⚠  No files found via API. Please set datasets.zenodo.direct_url in config.yaml")
             print("     or manually download and place the dataset in:", data_dir)
             marker.touch()
@@ -126,22 +152,34 @@ def download_zenodo(cfg: dict) -> Path:
         marker.touch()
         return data_dir
 
-    for url in file_urls:
-        fname = url.split("/")[-1].split("?")[0]
+    for url, fname in file_jobs:
         dest = data_dir / fname
         if dest.exists():
             print(f"  {fname} already exists, skipping")
             continue
         print(f"  Downloading {fname} …")
-        _download_file(url, dest, desc=fname)
+        # Zenodo self links may contain spaces; ensure path is request-safe
+        download_url = url
+        if "zenodo.org" in url and "/files/" in url and url.rstrip("/").endswith("/content"):
+            prefix, _, rest = url.partition("/files/")
+            seg, _, _ = rest.partition("/content")
+            encoded = quote(seg, safe="/")
+            download_url = f"{prefix}/files/{encoded}/content"
+        _download_file(download_url, dest, desc=fname)
 
-        if dest.suffix == ".zip":
+        if dest.suffix.lower() == ".zip":
             print(f"  Extracting {fname} …")
             with zipfile.ZipFile(dest) as zf:
                 zf.extractall(data_dir)
 
     n_files = sum(1 for _ in data_dir.rglob("*.jpg"))
     print(f"  ✓ {n_files} images found under {data_dir}")
+    if n_files == 0:
+        print(
+            "  ⚠  No images extracted. If an earlier run saved a junk file named "
+            "'content' here, delete it, remove zenodo_raw/.download_complete, "
+            "and run 01_download_data.py again."
+        )
     marker.touch()
     return data_dir
 
