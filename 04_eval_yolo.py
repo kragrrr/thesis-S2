@@ -12,6 +12,7 @@ import argparse
 import csv
 import html
 import json
+import os
 import random
 import shutil
 import sys
@@ -59,37 +60,57 @@ def _top1(result: Any) -> tuple[str, float]:
     return str(result.names[idx]), float(probs.top1conf)
 
 
+def _resolve_overlay_font(size: int) -> ImageFont.ImageFont:
+    """TTF first (Windows Fonts dir, then DejaVu); avoid load_default for sizing bugs."""
+    candidates = [
+        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf",
+        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "calibri.ttf",
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                return ImageFont.truetype(str(p), size=size)
+            except OSError:
+                continue
+    try:
+        return ImageFont.truetype("arial.ttf", size=size)
+    except OSError:
+        return ImageFont.load_default()
+
+
 def _pipeline_row_to_overlay(img: Image.Image, row: dict) -> Image.Image:
-    """Return a copy of ``img`` with Stage 1 / Stage 2 prediction text at the bottom."""
+    """Return a copy of ``img`` with a small fixed-height caption band at the bottom."""
     out = img.convert("RGB").copy()
     draw = ImageDraw.Draw(out)
     w, h = out.size
-    fs = max(16, min(28, h // 22))
 
     def _cf(x: Any) -> str:
         if x == "" or x is None:
             return "—"
         return f"{float(x):.3f}"
 
-    lines = [
-        f"Stage 1: {row['stage1']}   conf={_cf(row.get('s1_conf'))}",
-        f"Stage 2: {row['stage2'] or '—'}   conf={_cf(row.get('s2_conf'))}",
-    ]
-    try:
-        font = ImageFont.truetype("arial.ttf", fs)
-    except OSError:
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", fs)
-        except OSError:
-            font = ImageFont.load_default()
+    s2 = (row.get("stage2") or "—") or "—"
+    if len(s2) > 36:
+        s2 = s2[:33] + "…"
+    line1 = f"S1: {row['stage1']}  ({_cf(row.get('s1_conf'))})"
+    line2 = f"S2: {s2}  ({_cf(row.get('s2_conf'))})"
 
-    bbox = draw.multiline_textbbox((0, 0), "\n".join(lines), font=font, spacing=4)
-    text_h = bbox[3] - bbox[1] + 16
-    bar_top = max(0, h - text_h - 8)
-    draw.rectangle([0, bar_top, w, h], fill=(20, 20, 20))
-    draw.multiline_text(
-        (8, bar_top + 6), "\n".join(lines), font=font, fill=(250, 250, 250), spacing=4,
-    )
+    # Fixed band height (never derived from textbbox — avoids huge overlays with default font).
+    band_h = min(96, max(26, int(h * 0.14)), max(8, h - 4))
+    bar_top = max(0, h - band_h)
+
+    fs = max(11, min(14, band_h // 5))
+    font = _resolve_overlay_font(fs)
+    v_pad = max(3, (band_h - 2 * fs - 4) // 2)
+    y1 = bar_top + v_pad
+    y2 = y1 + fs + 2
+
+    draw.rectangle([0, bar_top, w, h], fill=(22, 22, 26))
+    draw.text((6, y1), line1, font=font, fill=(248, 248, 248))
+    draw.text((6, y2), line2, font=font, fill=(248, 248, 248))
     return out
 
 
@@ -122,8 +143,8 @@ def _write_pipeline_gallery(previews_root: Path) -> None:
         "img{width:100%;height:auto;display:block;}",
         "figcaption{padding:8px;font-size:12px;word-break:break-all;color:#aaa;}",
         "</style></head><body>",
-        "<h1>3-stage pipeline — panel crops with Stage 1 / Stage 2 labels</h1>",
-        "<p>Open this file in a browser (double-click). Images are under the same folder.</p>",
+        "<h1>Panel pipeline — Stage 1 (binary) &amp; Stage 2 (defect class) on each crop</h1>",
+        "<p>Open in a browser (double-click). Dark thermal crops stay visible; captions are only in the bottom band.</p>",
         "<div class='grid'>",
     ]
     for rel_posix, esc in items:
