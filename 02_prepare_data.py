@@ -6,7 +6,7 @@ Creates the following directory layouts under data/:
   yolo_cls_binary/   train/{Healthy,Defective}  val/{…}    (Stage 1)
   yolo_cls_defects/  train/{11 classes}          val/{…}    (Stage 2)
   yolo_det_uav/      images/{train,val,test}  labels/{…}   (Stage 0)
-  raptor_all/        12-class flat layout for SupCon
+  raptor_all/        12-class flat layout for SupCon (resize or raw — no zero-pad by default)
   uav_crops/         panel crops from Zenodo frames
 
 Run:  python 02_prepare_data.py [--config config.yaml]
@@ -51,6 +51,26 @@ def pad_to_square(img: np.ndarray, target: int, mode: str = "zero") -> np.ndarra
     return cv2.copyMakeBorder(
         img, pad_h, target - h - pad_h, pad_w, target - w - pad_w,
         cv2.BORDER_CONSTANT, value=[0, 0, 0],
+    )
+
+
+def _raptor_preprocess(img: np.ndarray, out_h: int, out_w: int, mode: str) -> np.ndarray:
+    """Prepare Raptor IR module crops for YOLO-cls / raptor_all.
+
+    * ``resize`` — scale to ``(out_w, out_h)`` (no letterboxing / zero borders).
+    * ``none`` — save as read from disk (native resolution; YOLO resizes at train time).
+    * ``zero`` — legacy: pad with zeros to a square of side ``max(out_h, out_w)``.
+    """
+    m = (mode or "resize").strip().lower()
+    if m == "none":
+        return img
+    if m == "resize":
+        return cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+    if m == "zero":
+        return pad_to_square(img, max(out_h, out_w), mode="zero")
+    raise ValueError(
+        f"Unknown data_prep.raptor.padding_mode: {mode!r} "
+        '(expected "resize", "none", or "zero")'
     )
 
 
@@ -137,7 +157,7 @@ def _write_cls_split(
             img = cv2.imread(str(img_path))
             if img is None:
                 continue
-            img = pad_to_square(img, max(h, w), mode=pad_mode)
+            img = _raptor_preprocess(img, h, w, pad_mode)
             cv2.imwrite(str(dest_dir / img_path.name), img)
 
 

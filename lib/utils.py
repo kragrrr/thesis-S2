@@ -164,6 +164,41 @@ def get_device(cfg: dict) -> torch.device:
     return torch.device(f"cuda:{idx}")
 
 
+_YOLO_CPU_FALLBACK_PRINTED = False
+
+
+def yolo_device(cfg: dict) -> int | str:
+    """``device=`` value for Ultralytics. Uses CPU if config asks for a GPU id but CUDA is missing."""
+    global _YOLO_CPU_FALLBACK_PRINTED
+    raw = cfg.get("device", "0")
+    dev_s = str(raw).strip().lower()
+    if dev_s == "cpu":
+        return "cpu"
+    if not torch.cuda.is_available():
+        if not _YOLO_CPU_FALLBACK_PRINTED:
+            print(
+                "⚙  Config requests a CUDA device but none is available — using CPU for YOLO.\n"
+                "   For an RTX 4090 on Windows: install NVIDIA drivers, then replace CPU PyTorch with "
+                "a CUDA build, e.g.\n"
+                "   pip uninstall -y torch torchvision\n"
+                "   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124\n"
+                "   python -c \"import torch; print(torch.__version__, torch.cuda.is_available())\""
+            )
+            _YOLO_CPU_FALLBACK_PRINTED = True
+        return "cpu"
+    if dev_s.startswith("cuda"):
+        return raw if isinstance(raw, str) else dev_s
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return str(raw)
+
+
+def yolo_amp_enabled(cfg: dict) -> bool:
+    """Mixed precision only when CUDA is available (Ultralytics AMP is GPU-oriented)."""
+    return bool(cfg.get("amp", True)) and torch.cuda.is_available()
+
+
 # ── Timestamp tag (used by export) ──────────────────────────
 
 def timestamp() -> str:

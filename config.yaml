@@ -7,7 +7,7 @@
 # ============================================================
 
 # ── Hardware ────────────────────────────────────────────────
-device: "0"                        # CUDA device id, or "cpu"
+device: "0"                        # RTX 4090: keep "0" — requires PyTorch *CUDA* wheel (not +cpu); see README
 num_workers: 12                    # DataLoader workers
 amp: true                          # Automatic Mixed Precision
 seed: 42
@@ -29,8 +29,8 @@ datasets:
 # ── Data Preparation ────────────────────────────────────────
 data_prep:
   raptor:
-    image_size: [64, 64]           # [H, W] after padding / resize
-    padding_mode: "zero"           # "zero" = zero-pad to square, "resize" = direct resize
+    image_size: [64, 64]           # [H, W] output for "resize" / square side for "zero"
+    padding_mode: "resize"          # "resize" = scale to image_size (no padding); "none" = raw; "zero" = legacy pad
     train_split: 0.8
   zenodo_uav:
     crop_padding: 0.05             # fractional padding around YOLO boxes

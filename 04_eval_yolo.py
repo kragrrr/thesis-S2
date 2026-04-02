@@ -30,12 +30,13 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from lib.utils import (
     CLASS_NAMES_12,
     DEFECT_CLASSES,
-    SEVERE_DEFECTS,
     MILD_DEFECTS,
-    load_config,
+    SEVERE_DEFECTS,
+    banner,
     get_data_dir,
     get_output_dir,
-    banner,
+    load_config,
+    yolo_device,
 )
 
 
@@ -95,7 +96,7 @@ def eval_stage(cfg: dict, stage: int) -> None:
 
     if stage == 0:
         data_yaml = get_data_dir(cfg, data_map[stage]) / "data.yaml"
-        metrics = model.val(data=str(data_yaml), device=cfg.get("device", "0"))
+        metrics = model.val(data=str(data_yaml), device=yolo_device(cfg))
         summary = {
             "mAP50": float(metrics.box.map50),
             "mAP50-95": float(metrics.box.map),

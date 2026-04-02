@@ -16,7 +16,16 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from lib.utils import load_config, get_data_dir, get_output_dir, seed_everything, banner, safe_num_workers
+from lib.utils import (
+    banner,
+    get_data_dir,
+    get_output_dir,
+    load_config,
+    safe_num_workers,
+    seed_everything,
+    yolo_amp_enabled,
+    yolo_device,
+)
 
 
 def train_stage0(cfg: dict) -> Path | None:
@@ -49,9 +58,9 @@ def train_stage0(cfg: dict) -> Path | None:
         optimizer=s0["optimizer"],
         lr0=s0["lr0"],
         lrf=s0["lrf"],
-        device=cfg.get("device", "0"),
+        device=yolo_device(cfg),
         workers=safe_num_workers(cfg),
-        amp=cfg.get("amp", True),
+        amp=yolo_amp_enabled(cfg),
         seed=cfg.get("seed", 42),
         deterministic=True,
         project=str(out_dir),
@@ -102,9 +111,9 @@ def train_stage1(cfg: dict) -> Path | None:
         optimizer=s1["optimizer"],
         lr0=s1["lr0"],
         weight_decay=s1.get("weight_decay", 5e-4),
-        device=cfg.get("device", "0"),
+        device=yolo_device(cfg),
         workers=safe_num_workers(cfg),
-        amp=cfg.get("amp", True),
+        amp=yolo_amp_enabled(cfg),
         seed=cfg.get("seed", 42),
         deterministic=True,
         pretrained=True,
@@ -161,9 +170,9 @@ def train_stage2(cfg: dict) -> Path | None:
         optimizer=s2["optimizer"],
         lr0=s2["lr0"],
         weight_decay=s2.get("weight_decay", 5e-4),
-        device=cfg.get("device", "0"),
+        device=yolo_device(cfg),
         workers=safe_num_workers(cfg),
-        amp=cfg.get("amp", True),
+        amp=yolo_amp_enabled(cfg),
         seed=cfg.get("seed", 42),
         deterministic=True,
         pretrained=True,

@@ -21,7 +21,7 @@ datasets:
 data_prep:
   raptor:
     image_size: [64, 64]
-    padding_mode: "zero"
+    padding_mode: "resize"
     train_split: 0.8
   zenodo_uav:
     crop_padding: 0.05

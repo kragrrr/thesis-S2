@@ -10,6 +10,8 @@ PV module anomaly detection:
 
 ## Quick Start
 
+**Windows + NVIDIA GPU:** install [PyTorch with CUDA](https://pytorch.org/get-started/locally/) *before* `requirements.txt` (see [Windows Setup](#windows-setup-rtx-4090)). A plain `pip install -r requirements.txt` alone often installs **CPU-only** Torch (`+cpu`), which cannot use your RTX 4090.
+
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
@@ -31,10 +33,32 @@ python run_all.py --skip yolo
 1. **Python 3.9+** — download from [python.org](https://www.python.org/downloads/) (check "Add to PATH" during install)
 2. **Git** — install [Git for Windows](https://git-scm.com/download/win) (needed by `01_download_data.py`)
 3. **CUDA Toolkit 12.x** — download from [NVIDIA](https://developer.nvidia.com/cuda-downloads)
-4. **PyTorch with CUDA** — install *before* `requirements.txt`:
+4. **PyTorch with CUDA** — install *before* `requirements.txt` (order matters):
 
 ```powershell
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt
+```
+
+**Check that the GPU is actually enabled** (must print `True` and a version **without** `+cpu`):
+
+```powershell
+python -c "import torch; print(torch.__version__); print('cuda:', torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
+```
+
+If you see `cuda: False` or a version like `2.x.x+cpu`, Ultralytics will fail with `Invalid CUDA device=0`. Fix by removing the CPU build and reinstalling the CUDA wheel:
+
+```powershell
+pip uninstall -y torch torchvision torchaudio
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+Use [cu121](https://pytorch.org/get-started/locally/) instead of `cu124` if you prefer that CUDA stack; match what [PyTorch’s install matrix](https://pytorch.org/get-started/locally/) lists for your setup.
+
+**Conda (Anaconda Prompt)** — GPU build from the `pytorch` channel, then install the rest with pip:
+
+```bat
+conda install pytorch torchvision pytorch-cuda=12.4 -c pytorch -c nvidia
 pip install -r requirements.txt
 ```
 
