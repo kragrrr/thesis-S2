@@ -109,6 +109,36 @@ def get_output_dir(cfg: dict, *parts: str) -> Path:
     return d
 
 
+def get_raptor_clone_root(cfg: dict) -> Path:
+    """Directory where `git clone` of InfraredSolarModules lands."""
+    return get_data_dir(cfg, "raptor_raw", "InfraredSolarModules")
+
+
+def find_raptor_dataset_dir(clone_root: Path) -> Path | None:
+    """Return the folder that contains ``images/`` and ``module_metadata.json``.
+
+    The upstream GitHub repo layout has changed over time (nested folder vs.
+    zip-at-root only). We pick the shallowest matching path under ``clone_root``.
+    """
+    if not clone_root.is_dir():
+        return None
+    best: Path | None = None
+    best_depth = 10**9
+    for meta in clone_root.rglob("module_metadata.json"):
+        root = meta.parent
+        if (root / "images").is_dir():
+            depth = len(meta.relative_to(clone_root).parts)
+            if depth < best_depth:
+                best_depth = depth
+                best = root
+    return best
+
+
+def resolve_raptor_source_dir(cfg: dict) -> Path | None:
+    """Resolved Raptor Maps data root, or ``None`` if not prepared yet."""
+    return find_raptor_dataset_dir(get_raptor_clone_root(cfg))
+
+
 # ── Reproducibility ─────────────────────────────────────────
 
 def seed_everything(seed: int = 42) -> None:

@@ -8,6 +8,9 @@ References
 
 from __future__ import annotations
 
+import warnings
+from urllib.error import URLError
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,8 +27,19 @@ class ResNet34Encoder(nn.Module):
         pretrained: bool = True,
     ):
         super().__init__()
-        weights = tvm.ResNet34_Weights.DEFAULT if pretrained else None
-        backbone = tvm.resnet34(weights=weights)
+        if pretrained:
+            try:
+                backbone = tvm.resnet34(weights=tvm.ResNet34_Weights.DEFAULT)
+            except (URLError, OSError) as exc:
+                warnings.warn(
+                    "Could not download ImageNet weights for ResNet-34 "
+                    f"({type(exc).__name__}: {exc}); using random init instead.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                backbone = tvm.resnet34(weights=None)
+        else:
+            backbone = tvm.resnet34(weights=None)
         feat_dim = backbone.fc.in_features          # 512
         backbone.fc = nn.Identity()
         self.backbone = backbone

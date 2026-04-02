@@ -41,13 +41,13 @@ from lib.supcon_dataset import RaptorDataset, UAVPanelDataset
 from lib.supcon_model import ResNet34Encoder
 from lib.utils import (
     CLASS_NAMES_12,
-    get_data_dir,
+    banner,
+    get_device,
     get_output_dir,
     load_config,
-    seed_everything,
-    get_device,
-    banner,
+    resolve_raptor_source_dir,
     safe_num_workers,
+    seed_everything,
 )
 
 
@@ -126,7 +126,10 @@ def evaluate(cfg: dict) -> None:
           f"(val_loss={state['val_loss']:.4f})")
 
     # ── source dataset ──
-    raptor_dir = get_data_dir(cfg) / "raptor_raw" / "InfraredSolarModules" / "InfraredSolarModules"
+    raptor_dir = resolve_raptor_source_dir(cfg)
+    if raptor_dir is None:
+        print("  ⚠  Raptor dataset not found. Run 01_download_data.py first.")
+        return
     images_dir = raptor_dir / "images"
     meta_path = raptor_dir / "module_metadata.json"
 

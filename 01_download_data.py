@@ -24,7 +24,12 @@ from tqdm import tqdm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from lib.utils import load_config, get_data_dir, banner
+from lib.utils import (
+    banner,
+    find_raptor_dataset_dir,
+    get_data_dir,
+    load_config,
+)
 
 
 def clone_raptor(cfg: dict) -> Path:
@@ -48,24 +53,27 @@ def clone_raptor(cfg: dict) -> Path:
         check=True,
     )
 
-    nested = clone_target / "InfraredSolarModules"
-    if not nested.exists():
+    content = find_raptor_dataset_dir(clone_target)
+    if content is None:
+        zip_candidates = sorted(clone_target.glob("*.zip"))
+        if not zip_candidates:
+            zip_candidates = sorted(clone_target.rglob("*.zip"))
+        if zip_candidates:
+            # Prefer the large dataset archive over any tiny auxiliary zips
+            zip_path = max(zip_candidates, key=lambda p: p.stat().st_size)
+            print(f"  Extracting {zip_path.relative_to(clone_target)} …")
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(clone_target)
+            content = find_raptor_dataset_dir(clone_target)
+
+    if content is None:
         raise FileNotFoundError(
-            f"Expected nested dir {nested}. Repo layout may have changed."
+            f"Could not find images/ and module_metadata.json under {clone_target}. "
+            "The GitHub repo may have changed again — check RaptorMaps/InfraredSolarModules."
         )
 
-    zip_candidates = list(nested.glob("*.zip"))
-    if zip_candidates:
-        print(f"  Extracting {zip_candidates[0].name} …")
-        with zipfile.ZipFile(zip_candidates[0]) as zf:
-            zf.extractall(nested)
-
-    images_dir = nested / "images"
-    meta_path = nested / "module_metadata.json"
-    if not images_dir.exists() or not meta_path.exists():
-        raise FileNotFoundError(
-            "Could not locate images/ or module_metadata.json inside the repo."
-        )
+    images_dir = content / "images"
+    meta_path = content / "module_metadata.json"
 
     n_images = len(list(images_dir.glob("*.jpg")))
     print(f"  ✓ {n_images} images, metadata at {meta_path.relative_to(data_dir)}")

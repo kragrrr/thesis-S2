@@ -98,7 +98,7 @@ yolo:
 
 supcon:
   encoder: "resnet34"
-  pretrained: true
+  pretrained: false               # smoke test: no ImageNet download (labs / flaky networks)
   embed_dim: 128
   proj_hidden: 512
   epochs: 2                        # just 2 epochs for smoke test

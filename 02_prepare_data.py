@@ -32,9 +32,11 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from lib.utils import (
     CLASS_NAMES_12,
     DEFECT_CLASSES,
-    load_config,
-    get_data_dir,
     banner,
+    get_data_dir,
+    get_raptor_clone_root,
+    load_config,
+    resolve_raptor_source_dir,
 )
 
 
@@ -61,15 +63,15 @@ def clamp(v: int, lo: int, hi: int) -> int:
 def prepare_raptor(cfg: dict) -> None:
     banner("Preparing Raptor Maps dataset")
 
-    data_root = get_data_dir(cfg)
-    raptor_raw = data_root / "raptor_raw" / "InfraredSolarModules" / "InfraredSolarModules"
-    images_dir = raptor_raw / "images"
-    meta_path = raptor_raw / "module_metadata.json"
-
-    if not meta_path.exists():
-        print(f"  ⚠  Raptor metadata not found at {meta_path}")
+    raptor_raw = resolve_raptor_source_dir(cfg)
+    if raptor_raw is None:
+        print("  ⚠  Raptor dataset not found.")
+        print(f"     Expected images/ + module_metadata.json under {get_raptor_clone_root(cfg)}")
         print("     Run 01_download_data.py first.")
         return
+
+    images_dir = raptor_raw / "images"
+    meta_path = raptor_raw / "module_metadata.json"
 
     with open(meta_path) as f:
         meta = json.load(f)
