@@ -96,6 +96,7 @@ python 01_download_data.py
 python 02_prepare_data.py
 python 03_train_yolo.py --stage 1          # train only Stage 1
 python 04_eval_yolo.py --stage 2           # evaluate only Stage 2
+python 04_eval_yolo.py --gallery-only      # rewrite gallery.html only (after git pull)
 python 05_train_supcon.py --resume outputs/supcon/checkpoints/last_encoder.pth
 python 07_export_results.py --tag rtx4090_run1
 ```

@@ -17,6 +17,7 @@ import random
 import shutil
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -123,38 +124,74 @@ def _preview_indices(n_total: int, max_save: int, seed: int) -> set[int]:
     return set(rng.sample(range(n_total), max_save))
 
 
-def _write_pipeline_gallery(previews_root: Path) -> None:
-    """Minimal static HTML page to browse ``pipeline_previews/{split}/*.jpg`` in a browser."""
+def _write_pipeline_gallery(previews_root: Path) -> bool:
+    """Write ``gallery.html`` under ``previews_root``. Returns True if file was written."""
     jpgs = sorted(previews_root.rglob("*.jpg"))
     if not jpgs:
-        return
-    # only files inside split subdirs, not root
+        return False
+
+    now = datetime.now(timezone.utc)
+    gen_iso = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+    build_id = now.strftime("%Y%m%d%H%M%S")
+
     items: list[tuple[str, str]] = []
     for p in jpgs:
         rel = p.relative_to(previews_root)
         items.append((rel.as_posix(), html.escape(rel.as_posix())))
 
     body_parts = [
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>YOLO pipeline previews</title>",
+        "<!DOCTYPE html>",
+        "<html lang='en'>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<meta http-equiv='Cache-Control' content='no-cache, no-store, must-revalidate'>",
+        "<meta http-equiv='Pragma' content='no-cache'>",
+        f"<title>Pipeline previews ({gen_iso})</title>",
         "<style>",
         "body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee;}",
-        "h1{font-size:1.25rem;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}",
+        "h1{font-size:1.2rem;} .sub{color:#888;font-size:0.9rem;margin-bottom:1rem;}",
+        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}",
         "figure{margin:0;background:#222;border-radius:8px;overflow:hidden;}",
-        "img{width:100%;height:auto;display:block;}",
-        "figcaption{padding:8px;font-size:12px;word-break:break-all;color:#aaa;}",
-        "</style></head><body>",
-        "<h1>Panel pipeline — Stage 1 (binary) &amp; Stage 2 (defect class) on each crop</h1>",
-        "<p>Open in a browser (double-click). Dark thermal crops stay visible; captions are only in the bottom band.</p>",
+        "img{width:100%;height:auto;display:block;image-rendering:auto;}",
+        "figcaption{padding:8px;font-size:11px;word-break:break-all;color:#aaa;}",
+        "footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #333;color:#666;font-size:12px;}",
+        "</style>",
+        "</head>",
+        "<body>",
+        f"<!-- gallery template v3 generated={gen_iso} -->",
+        "<h1>Panel pipeline previews</h1>",
+        "<p class='sub'>Stage 1 = binary (Healthy / Defective). Stage 2 = defect type when S1 is Defective. "
+        "Labels are drawn only in the bottom strip on each JPG. If the page looked unchanged, hard-refresh "
+        "(Ctrl+F5) or re-run: <code>python 04_eval_yolo.py --gallery-only</code> after <code>git pull</code>.</p>",
         "<div class='grid'>",
     ]
     for rel_posix, esc in items:
+        src = html.escape(rel_posix, quote=True)
         body_parts.append(
-            f"<figure><img src='{html.escape(rel_posix, quote=True)}' loading='lazy' alt=''>"
-            f"<figcaption>{esc}</figcaption></figure>"
+            f"<figure><img src='{src}' loading='lazy' alt=''><figcaption>{esc}</figcaption></figure>"
         )
-    body_parts.append("</div></body></html>")
+    body_parts.extend([
+        "</div>",
+        f"<footer>Generated {html.escape(gen_iso)} — {len(items)} images — build {html.escape(build_id)}</footer>",
+        "</body></html>",
+    ])
     gallery_path = previews_root / "gallery.html"
     gallery_path.write_text("\n".join(body_parts), encoding="utf-8")
+    return True
+
+
+def refresh_pipeline_gallery(cfg: dict) -> None:
+    """Rewrite ``gallery.html`` if preview JPEGs exist (updates template without re-running inference)."""
+    pe = cfg.get("yolo", {}).get("pipeline_eval", {})
+    if not pe.get("write_gallery_html", True):
+        return
+    preview_root = get_output_dir(cfg, "yolo", "evaluation") / "pipeline_previews"
+    if not preview_root.is_dir():
+        return
+    if not list(preview_root.rglob("*.jpg")):
+        return
+    if _write_pipeline_gallery(preview_root):
+        print(f"  ✓ Refreshed gallery: {preview_root / 'gallery.html'}")
 
 
 def _save_confusion_matrix(
@@ -277,7 +314,6 @@ def run_pipeline(cfg: dict, preview_max_override: int | None = None) -> None:
     max_preview = preview_max_override if preview_max_override is not None else int(
         pe.get("preview_max_images", 600)
     )
-    write_gallery = bool(pe.get("write_gallery_html", True))
     preview_root = eval_dir / "pipeline_previews"
     save_idx: set[int] = set()
     if save_previews:
@@ -361,9 +397,6 @@ def run_pipeline(cfg: dict, preview_max_override: int | None = None) -> None:
     if save_previews:
         n_saved = len(save_idx)
         print(f"  ✓ Preview images: {preview_root}  ({n_saved} files)")
-        if write_gallery:
-            _write_pipeline_gallery(preview_root)
-            print(f"  ✓ Open in browser: {preview_root / 'gallery.html'}")
 
     print(f"  ✓ Pipeline results: {csv_path}")
 
@@ -381,8 +414,18 @@ def main() -> None:
         "--pipeline-preview-max", type=int, default=None,
         help="Override yolo.pipeline_eval.preview_max_images (0 = save every crop).",
     )
+    parser.add_argument(
+        "--gallery-only",
+        action="store_true",
+        help="Only rewrite outputs/.../pipeline_previews/gallery.html from existing JPGs (fast).",
+    )
     args = parser.parse_args()
     cfg = load_config(args.config)
+
+    if args.gallery_only:
+        refresh_pipeline_gallery(cfg)
+        print("  Done (--gallery-only).")
+        return
 
     if args.stage is not None:
         eval_stage(cfg, args.stage)
@@ -392,6 +435,8 @@ def main() -> None:
 
     if not args.skip_pipeline:
         run_pipeline(cfg, preview_max_override=args.pipeline_preview_max)
+
+    refresh_pipeline_gallery(cfg)
 
     banner("YOLO evaluation complete")
 
