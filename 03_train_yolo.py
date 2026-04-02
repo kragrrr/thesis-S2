@@ -25,6 +25,7 @@ from lib.utils import (
     seed_everything,
     yolo_amp_enabled,
     yolo_device,
+    yolo_stage_amp,
 )
 
 
@@ -60,7 +61,7 @@ def train_stage0(cfg: dict) -> Path | None:
         lrf=s0["lrf"],
         device=yolo_device(cfg),
         workers=safe_num_workers(cfg),
-        amp=yolo_amp_enabled(cfg),
+        amp=yolo_stage_amp(cfg, s0),
         seed=cfg.get("seed", 42),
         deterministic=True,
         project=str(out_dir),

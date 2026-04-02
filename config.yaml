@@ -40,21 +40,24 @@ data_prep:
 # ── YOLO 3-Stage Pipeline ──────────────────────────────────
 yolo:
   # Stage 0 — Panel Detector (object detection)
+  # Tuned for dense Zenodo panels (~70 instances/image): avoid mosaic + lower LR
+  # to reduce collapse to mAP=0; smaller model than x for stability / VRAM.
   stage0:
     enabled: true
-    model: "yolo26x.pt"
+    model: "yolo11l.pt"
     epochs: 50
-    imgsz: 640
-    batch: 32                      # 4090: safe at 640 px
+    imgsz: 512
+    batch: 16
     patience: 10
     optimizer: "auto"
-    lr0: 0.01
+    lr0: 0.004
     lrf: 0.01
+    amp: false                     # full FP32 on Stage 0 — helps dense-box stability
     augment:
-      mosaic: 1.0
+      mosaic: 0.0                   # off: mosaic is harsh when thousands of tiny boxes
       flipud: 0.5
       fliplr: 0.5
-      degrees: 15.0
+      degrees: 10.0
       hsv_h: 0.015
       hsv_s: 0.7
       hsv_v: 0.4
@@ -62,10 +65,10 @@ yolo:
   # Stage 1 — Binary Sorter  (Healthy / Defective)
   stage1:
     enabled: true
-    model: "yolo26x-cls.pt"
+    model: "yolo11l-cls.pt"
     epochs: 30
     imgsz: 64
-    batch: 2048                    # tiny images ⇒ huge batch fits in 24 GB
+    batch: 1024                    # lower than 2048 — leaves VRAM headroom on 24 GB
     patience: 10
     optimizer: "auto"
     lr0: 0.001667
@@ -87,10 +90,10 @@ yolo:
   # Stage 2 — Defect Diagnostician  (11 anomaly classes)
   stage2:
     enabled: true
-    model: "yolo26x-cls.pt"
+    model: "yolo11l-cls.pt"
     epochs: 60
     imgsz: 64
-    batch: 2048
+    batch: 1024
     patience: 15
     optimizer: "auto"
     lr0: 0.000667

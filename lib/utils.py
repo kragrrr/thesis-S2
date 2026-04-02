@@ -199,6 +199,15 @@ def yolo_amp_enabled(cfg: dict) -> bool:
     return bool(cfg.get("amp", True)) and torch.cuda.is_available()
 
 
+def yolo_stage_amp(cfg: dict, stage_cfg: dict) -> bool:
+    """Per-stage AMP: ``stage_cfg['amp']`` overrides global ``cfg['amp']`` when set."""
+    if not torch.cuda.is_available():
+        return False
+    if "amp" in stage_cfg:
+        return bool(stage_cfg["amp"])
+    return bool(cfg.get("amp", True))
+
+
 # ── Timestamp tag (used by export) ──────────────────────────
 
 def timestamp() -> str:

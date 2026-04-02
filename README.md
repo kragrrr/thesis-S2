@@ -118,9 +118,9 @@ The 64 px classification images are tiny, so you can use very large batches:
 
 | Stage | Image Size | Default Batch | VRAM ~Usage |
 |-------|-----------|---------------|-------------|
-| Stage 0 (detection) | 640 px | 32 | ~12 GB |
-| Stage 1 (binary cls) | 64 px | 2048 | ~8 GB |
-| Stage 2 (defect cls) | 64 px | 2048 | ~8 GB |
+| Stage 0 (detection) | 512 px | 16 | ~8–12 GB (FP32, no mosaic) |
+| Stage 1 (binary cls) | 64 px | 1024 | ~4–8 GB |
+| Stage 2 (defect cls) | 64 px | 1024 | ~4–8 GB |
 
 ### SupCon
 
