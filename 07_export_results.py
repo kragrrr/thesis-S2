@@ -38,6 +38,7 @@ EXPORT_GLOBS = [
     "yolo/evaluation/*.txt",
     "yolo/evaluation/*.csv",
     "yolo/evaluation/*.png",
+    "yolo/evaluation/pipeline_previews/gallery.html",
     # SupCon checkpoints
     "supcon/checkpoints/*.pth",
     # SupCon plots
@@ -70,6 +71,11 @@ def export(cfg: dict, tag: str | None = None) -> None:
     config_path = SCRIPT_DIR / "config.yaml"
     if config_path.exists():
         files.append(config_path)
+
+    files = sorted(set(files))
+    prev_root = output_root / "yolo" / "evaluation" / "pipeline_previews"
+    if prev_root.is_dir():
+        files.extend(sorted(prev_root.rglob("*.jpg")))
 
     files = sorted(set(files))
     if not files:

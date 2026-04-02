@@ -112,6 +112,12 @@ yolo:
       scale: 0.5
       translate: 0.1
 
+  # After 04_eval_yolo.py pipeline: save crops with Stage1/2 text + optional HTML gallery
+  pipeline_eval:
+    save_preview_images: true
+    preview_max_images: 600     # random sample (reproducible seed); 0 = save every crop
+    write_gallery_html: true    # outputs/yolo/evaluation/pipeline_previews/gallery.html
+
 # ── SupCon Pipeline ─────────────────────────────────────────
 supcon:
   encoder: "resnet34"

@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html
 import json
+import random
+import shutil
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from sklearn.metrics import classification_report, confusion_matrix
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,6 +57,83 @@ def _top1(result: Any) -> tuple[str, float]:
     probs = result.probs
     idx = int(probs.top1)
     return str(result.names[idx]), float(probs.top1conf)
+
+
+def _pipeline_row_to_overlay(img: Image.Image, row: dict) -> Image.Image:
+    """Return a copy of ``img`` with Stage 1 / Stage 2 prediction text at the bottom."""
+    out = img.convert("RGB").copy()
+    draw = ImageDraw.Draw(out)
+    w, h = out.size
+    fs = max(16, min(28, h // 22))
+
+    def _cf(x: Any) -> str:
+        if x == "" or x is None:
+            return "—"
+        return f"{float(x):.3f}"
+
+    lines = [
+        f"Stage 1: {row['stage1']}   conf={_cf(row.get('s1_conf'))}",
+        f"Stage 2: {row['stage2'] or '—'}   conf={_cf(row.get('s2_conf'))}",
+    ]
+    try:
+        font = ImageFont.truetype("arial.ttf", fs)
+    except OSError:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", fs)
+        except OSError:
+            font = ImageFont.load_default()
+
+    bbox = draw.multiline_textbbox((0, 0), "\n".join(lines), font=font, spacing=4)
+    text_h = bbox[3] - bbox[1] + 16
+    bar_top = max(0, h - text_h - 8)
+    draw.rectangle([0, bar_top, w, h], fill=(20, 20, 20))
+    draw.multiline_text(
+        (8, bar_top + 6), "\n".join(lines), font=font, fill=(250, 250, 250), spacing=4,
+    )
+    return out
+
+
+def _preview_indices(n_total: int, max_save: int, seed: int) -> set[int]:
+    if n_total == 0:
+        return set()
+    if max_save <= 0 or max_save >= n_total:
+        return set(range(n_total))
+    rng = random.Random(seed)
+    return set(rng.sample(range(n_total), max_save))
+
+
+def _write_pipeline_gallery(previews_root: Path) -> None:
+    """Minimal static HTML page to browse ``pipeline_previews/{split}/*.jpg`` in a browser."""
+    jpgs = sorted(previews_root.rglob("*.jpg"))
+    if not jpgs:
+        return
+    # only files inside split subdirs, not root
+    items: list[tuple[str, str]] = []
+    for p in jpgs:
+        rel = p.relative_to(previews_root)
+        items.append((rel.as_posix(), html.escape(rel.as_posix())))
+
+    body_parts = [
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>YOLO pipeline previews</title>",
+        "<style>",
+        "body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee;}",
+        "h1{font-size:1.25rem;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}",
+        "figure{margin:0;background:#222;border-radius:8px;overflow:hidden;}",
+        "img{width:100%;height:auto;display:block;}",
+        "figcaption{padding:8px;font-size:12px;word-break:break-all;color:#aaa;}",
+        "</style></head><body>",
+        "<h1>3-stage pipeline — panel crops with Stage 1 / Stage 2 labels</h1>",
+        "<p>Open this file in a browser (double-click). Images are under the same folder.</p>",
+        "<div class='grid'>",
+    ]
+    for rel_posix, esc in items:
+        body_parts.append(
+            f"<figure><img src='{html.escape(rel_posix, quote=True)}' loading='lazy' alt=''>"
+            f"<figcaption>{esc}</figcaption></figure>"
+        )
+    body_parts.append("</div></body></html>")
+    gallery_path = previews_root / "gallery.html"
+    gallery_path.write_text("\n".join(body_parts), encoding="utf-8")
 
 
 def _save_confusion_matrix(
@@ -149,11 +229,12 @@ def eval_stage(cfg: dict, stage: int) -> None:
 
 # ── full 3-stage pipeline on UAV crops ──────────────────────
 
-def run_pipeline(cfg: dict) -> None:
+def run_pipeline(cfg: dict, preview_max_override: int | None = None) -> None:
     banner("Running full 3-stage pipeline on UAV panel crops")
 
     out_dir = get_output_dir(cfg, "yolo")
     eval_dir = get_output_dir(cfg, "yolo", "evaluation")
+    dev = yolo_device(cfg)
 
     s1_weights = out_dir / "stage1_sorter" / "weights" / "best.pt"
     s2_weights = out_dir / "stage2_diagnostician" / "weights" / "best.pt"
@@ -170,10 +251,24 @@ def run_pipeline(cfg: dict) -> None:
         print(f"  ⚠  No crops found in {crops_dir}. Run 02_prepare_data.py first.")
         return
 
+    pe = cfg.get("yolo", {}).get("pipeline_eval", {})
+    save_previews = bool(pe.get("save_preview_images", True))
+    max_preview = preview_max_override if preview_max_override is not None else int(
+        pe.get("preview_max_images", 600)
+    )
+    write_gallery = bool(pe.get("write_gallery_html", True))
+    preview_root = eval_dir / "pipeline_previews"
+    save_idx: set[int] = set()
+    if save_previews:
+        if preview_root.exists():
+            shutil.rmtree(preview_root)
+        preview_root.mkdir(parents=True, exist_ok=True)
+        save_idx = _preview_indices(len(crop_files), max_preview, cfg.get("seed", 42))
+
     ar_thresh = cfg["data_prep"]["zenodo_uav"]["slice_ar_threshold"]
     results_rows = []
 
-    for crop_path in crop_files:
+    for idx, crop_path in enumerate(crop_files):
         img = Image.open(crop_path).convert("RGB")
         w, h = img.size
         chunks = [img]
@@ -182,7 +277,7 @@ def run_pipeline(cfg: dict) -> None:
             cw = w // n
             chunks = [img.crop((i * cw, 0, w if i == n - 1 else (i + 1) * cw, h)) for i in range(n)]
 
-        s1_res = s1_model.predict(source=chunks, verbose=False)
+        s1_res = s1_model.predict(source=chunks, verbose=False, device=dev)
 
         defective_chunks = []
         for chunk, r1 in zip(chunks, s1_res):
@@ -192,20 +287,32 @@ def run_pipeline(cfg: dict) -> None:
                 defective_chunks.append(chunk)
 
         if not defective_chunks:
-            results_rows.append({
+            row = {
                 "crop": crop_path.name, "stage1": "Healthy", "stage2": "",
                 "s1_conf": float(s1_res[0].probs.top1conf), "s2_conf": "",
-            })
-            continue
+            }
+            results_rows.append(row)
+        else:
+            s2_res = s2_model.predict(source=defective_chunks, verbose=False, device=dev)
+            best_label, best_conf = max(
+                [_top1(r) for r in s2_res], key=lambda x: x[1],
+            )
+            row = {
+                "crop": crop_path.name, "stage1": "Defective", "stage2": best_label,
+                "s1_conf": float(s1_res[0].probs.top1conf), "s2_conf": float(best_conf),
+            }
+            results_rows.append(row)
 
-        s2_res = s2_model.predict(source=defective_chunks, verbose=False)
-        best_label, best_conf = max(
-            [_top1(r) for r in s2_res], key=lambda x: x[1],
-        )
-        results_rows.append({
-            "crop": crop_path.name, "stage1": "Defective", "stage2": best_label,
-            "s1_conf": float(s1_res[0].probs.top1conf), "s2_conf": best_conf,
-        })
+        if save_previews and idx in save_idx:
+            try:
+                rel = crop_path.relative_to(crops_dir)
+            except ValueError:
+                rel = Path(crop_path.name)
+            out_sub = preview_root / rel.parent
+            out_sub.mkdir(parents=True, exist_ok=True)
+            out_name = f"{crop_path.stem}_pipeline{crop_path.suffix}"
+            overlay = _pipeline_row_to_overlay(img, row)
+            overlay.save(out_sub / out_name, quality=92)
 
     csv_path = eval_dir / "pipeline_predictions.csv"
     with open(csv_path, "w", newline="") as f:
@@ -230,6 +337,13 @@ def run_pipeline(cfg: dict) -> None:
         fig.savefig(eval_dir / "pipeline_defect_distribution.png", dpi=pcfg.get("dpi", 150))
         plt.close(fig)
 
+    if save_previews:
+        n_saved = len(save_idx)
+        print(f"  ✓ Preview images: {preview_root}  ({n_saved} files)")
+        if write_gallery:
+            _write_pipeline_gallery(preview_root)
+            print(f"  ✓ Open in browser: {preview_root / 'gallery.html'}")
+
     print(f"  ✓ Pipeline results: {csv_path}")
 
 
@@ -242,6 +356,10 @@ def main() -> None:
                         help="Evaluate only this stage (0, 1, or 2).")
     parser.add_argument("--skip-pipeline", action="store_true",
                         help="Skip the full pipeline run on UAV crops.")
+    parser.add_argument(
+        "--pipeline-preview-max", type=int, default=None,
+        help="Override yolo.pipeline_eval.preview_max_images (0 = save every crop).",
+    )
     args = parser.parse_args()
     cfg = load_config(args.config)
 
@@ -252,7 +370,7 @@ def main() -> None:
             eval_stage(cfg, s)
 
     if not args.skip_pipeline:
-        run_pipeline(cfg)
+        run_pipeline(cfg, preview_max_override=args.pipeline_preview_max)
 
     banner("YOLO evaluation complete")
 

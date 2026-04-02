@@ -85,7 +85,7 @@ Each step is a standalone script that reads `config.yaml`:
 | 01 | `01_download_data.py` | Clones Raptor Maps repo, downloads Zenodo UAV dataset |
 | 02 | `02_prepare_data.py` | Organises images into YOLO-cls / detection layouts, crops UAV panels |
 | 03 | `03_train_yolo.py` | Trains Stage 0 (detector), Stage 1 (binary), Stage 2 (11-class) |
-| 04 | `04_eval_yolo.py` | Validates each stage, runs full pipeline on UAV crops |
+| 04 | `04_eval_yolo.py` | Validates each stage, pipeline CSV + **preview images** + `gallery.html` |
 | 05 | `05_train_supcon.py` | Trains ResNet-34 with anomaly-contrastive loss |
 | 06 | `06_eval_supcon.py` | k-NN evaluation, AUROC, t-SNE, cross-domain analysis |
 | 07 | `07_export_results.py` | Packages models + plots into a portable `.tar.gz` |
@@ -141,7 +141,8 @@ outputs/
 │   ├── stage0_detector/    weights/ plots/ results.csv args.yaml
 │   ├── stage1_sorter/      weights/ plots/ results.csv args.yaml
 │   ├── stage2_diagnostician/
-│   └── evaluation/         metrics, confusion matrices, pipeline CSV
+│   └── evaluation/         metrics, confusion matrices, pipeline CSV,
+│                           pipeline_previews/ (overlaid labels), gallery.html
 ├── supcon/
 │   ├── checkpoints/        best_encoder.pth, last_encoder.pth
 │   ├── plots/              loss_curve, t-SNE, confusion matrix, PCA
