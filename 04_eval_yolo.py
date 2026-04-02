@@ -82,9 +82,46 @@ def _resolve_overlay_font(size: int) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
+def _preview_upscale_for_display(img: Image.Image) -> Image.Image:
+    """Upscale tiny or extreme-aspect crops so JPG previews + captions are legible in the gallery."""
+    out = img.convert("RGB").copy()
+    w, h = out.size
+    if w < 1 or h < 1:
+        return out
+
+    try:
+        resample = Image.Resampling.LANCZOS
+    except AttributeError:
+        resample = Image.LANCZOS  # type: ignore[attr-defined]
+
+    short = min(w, h)
+    long_ = max(w, h)
+    ar = long_ / max(short, 1)
+
+    scale = 1.0
+    # Tiny IR chips (e.g. 64 px)
+    if short < 160:
+        scale = max(scale, min(6.0, 160.0 / short))
+    # Panoramic strips (many panels in one crop): avoid paper-thin thumbnails
+    if ar > 5.0 and short < 200:
+        scale = max(scale, min(4.0, 200.0 / short))
+
+    if scale > 1.01:
+        out = out.resize((max(1, int(w * scale)), max(1, int(h * scale))), resample)
+        w, h = out.size
+
+    # Cap megapixel so files stay reasonable
+    max_side = 2048
+    if max(w, h) > max_side:
+        r = max_side / max(w, h)
+        out = out.resize((max(1, int(w * r)), max(1, int(h * r))), resample)
+
+    return out
+
+
 def _pipeline_row_to_overlay(img: Image.Image, row: dict) -> Image.Image:
     """Return a copy of ``img`` with a small fixed-height caption band at the bottom."""
-    out = img.convert("RGB").copy()
+    out = _preview_upscale_for_display(img)
     draw = ImageDraw.Draw(out)
     w, h = out.size
 
@@ -151,24 +188,25 @@ def _write_pipeline_gallery(previews_root: Path) -> bool:
         "body{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee;}",
         "h1{font-size:1.2rem;} .sub{color:#888;font-size:0.9rem;margin-bottom:1rem;}",
         ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}",
-        "figure{margin:0;background:#222;border-radius:8px;overflow:hidden;}",
-        "img{width:100%;height:auto;display:block;image-rendering:auto;}",
+        "figure{margin:0;background:#222;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;}",
+        ".imgwrap{background:#0a0a0a;min-height:200px;display:flex;align-items:center;justify-content:center;padding:10px;box-sizing:border-box;}",
+        ".imgwrap img{max-width:100%;max-height:min(420px,55vh);width:auto;height:auto;object-fit:contain;vertical-align:middle;image-rendering:auto;}",
         "figcaption{padding:8px;font-size:11px;word-break:break-all;color:#aaa;}",
         "footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #333;color:#666;font-size:12px;}",
         "</style>",
         "</head>",
         "<body>",
-        f"<!-- gallery template v3 generated={gen_iso} -->",
+        f"<!-- gallery template v4 generated={gen_iso} -->",
         "<h1>Panel pipeline previews</h1>",
-        "<p class='sub'>Stage 1 = binary (Healthy / Defective). Stage 2 = defect type when S1 is Defective. "
-        "Labels are drawn only in the bottom strip on each JPG. If the page looked unchanged, hard-refresh "
-        "(Ctrl+F5) or re-run: <code>python 04_eval_yolo.py --gallery-only</code> after <code>git pull</code>.</p>",
+        "<p class='sub'>Wide UAV panel strips use a letterboxed preview so you see the full crop, not a zoomed strip. "
+        "Stage 1 = binary; Stage 2 = defect class. Re-run <code>python 04_eval_yolo.py</code> to regenerate JPGs after pull.</p>",
         "<div class='grid'>",
     ]
     for rel_posix, esc in items:
         src = html.escape(rel_posix, quote=True)
         body_parts.append(
-            f"<figure><img src='{src}' loading='lazy' alt=''><figcaption>{esc}</figcaption></figure>"
+            f"<figure><div class='imgwrap'><img src='{src}' loading='lazy' alt=''></div>"
+            f"<figcaption>{esc}</figcaption></figure>"
         )
     body_parts.extend([
         "</div>",
