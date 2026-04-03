@@ -291,13 +291,14 @@ def eval_stage(cfg: dict, stage: int) -> None:
 
     labels = label_map[stage]
     y_true, y_pred, confs = [], [], []
+    dev = yolo_device(cfg)
 
     for cls_dir in sorted(val_dir.iterdir()):
         if not cls_dir.is_dir():
             continue
         true_label = cls_dir.name
         for img_path in cls_dir.glob("*.jpg"):
-            results = model.predict(source=str(img_path), verbose=False)
+            results = model.predict(source=str(img_path), verbose=False, device=dev)
             pred_label, conf = _top1(results[0])
             y_true.append(true_label)
             y_pred.append(pred_label)

@@ -42,6 +42,7 @@ from lib.supcon_model import ResNet34Encoder
 from lib.utils import (
     CLASS_NAMES_12,
     banner,
+    get_data_dir,
     get_device,
     get_output_dir,
     load_config,

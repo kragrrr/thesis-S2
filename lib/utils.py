@@ -153,12 +153,20 @@ def seed_everything(seed: int = 42) -> None:
 
 # ── Device helper ───────────────────────────────────────────
 
+
+def _cuda_has_usable_gpu() -> bool:
+    return bool(torch.cuda.is_available() and torch.cuda.device_count() > 0)
+
+
 def get_device(cfg: dict) -> torch.device:
     dev = str(cfg.get("device", "0"))
-    if dev == "cpu" or not torch.cuda.is_available():
+    if dev == "cpu" or not _cuda_has_usable_gpu():
         print("⚙  Using CPU")
         return torch.device("cpu")
     idx = int(dev)
+    if idx < 0 or idx >= torch.cuda.device_count():
+        print(f"⚙  Using CPU (GPU index {idx} not available)")
+        return torch.device("cpu")
     props = torch.cuda.get_device_properties(idx)
     print(f"⚙  GPU {idx}: {props.name}  ({props.total_mem / 1e9:.1f} GB)")
     return torch.device(f"cuda:{idx}")
@@ -174,24 +182,32 @@ def yolo_device(cfg: dict) -> int | str:
     dev_s = str(raw).strip().lower()
     if dev_s == "cpu":
         return "cpu"
-    if not torch.cuda.is_available():
+    if not _cuda_has_usable_gpu():
         if not _YOLO_CPU_FALLBACK_PRINTED:
             print(
-                "⚙  Config requests a CUDA device but none is available — using CPU for YOLO.\n"
-                "   For an RTX 4090 on Windows: install NVIDIA drivers, then replace CPU PyTorch with "
-                "a CUDA build, e.g.\n"
-                "   pip uninstall -y torch torchvision\n"
+                "⚙  Config requests a CUDA device but none is usable — using CPU for YOLO.\n"
+                "   (CUDA build with no visible GPU is common on CPU-only cloud nodes.)\n"
+                "   For a local GPU: install NVIDIA drivers and a matching CUDA PyTorch wheel, e.g.\n"
                 "   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124\n"
-                "   python -c \"import torch; print(torch.__version__, torch.cuda.is_available())\""
+                "   python -c \"import torch; print(torch.__version__, torch.cuda.device_count())\""
             )
             _YOLO_CPU_FALLBACK_PRINTED = True
         return "cpu"
     if dev_s.startswith("cuda"):
         return raw if isinstance(raw, str) else dev_s
     try:
-        return int(raw)
+        idx = int(raw)
     except (TypeError, ValueError):
         return str(raw)
+    if idx < 0 or idx >= torch.cuda.device_count():
+        if not _YOLO_CPU_FALLBACK_PRINTED:
+            print(
+                f"⚙  Config device index {idx} is out of range "
+                f"(0–{torch.cuda.device_count() - 1}) — using CPU for YOLO."
+            )
+            _YOLO_CPU_FALLBACK_PRINTED = True
+        return "cpu"
+    return idx
 
 
 def yolo_amp_enabled(cfg: dict) -> bool:
