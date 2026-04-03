@@ -168,7 +168,7 @@ def get_device(cfg: dict) -> torch.device:
         print(f"⚙  Using CPU (GPU index {idx} not available)")
         return torch.device("cpu")
     props = torch.cuda.get_device_properties(idx)
-    print(f"⚙  GPU {idx}: {props.name}  ({props.total_mem / 1e9:.1f} GB)")
+    print(f"⚙  GPU {idx}: {props.name}  ({props.total_memory / 1e9:.1f} GB)")
     return torch.device(f"cuda:{idx}")
 
 
