@@ -273,16 +273,24 @@ def evaluate(cfg: dict) -> None:
     fig.savefig(plot_dir / "tsne_source.png", dpi=pcfg.get("dpi", 150))
     plt.close(fig)
 
-    # ── anomaly score histogram ──
+    # ── anomaly score histograms ──
+    # Binary AUROC uses P(anomaly)=fraction of anomaly-labelled neighbours (Bommes δ).
+    # Mean cosine distance to neighbours lives on a different (~small) scale — do not
+    # overlay δ on that axis (it looked like "no separation" when the line was wrong).
     dists, _ = knn.kneighbors(val_emb)
     mean_dists = dists.mean(axis=1)
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.hist(mean_dists[binary_true == 0], bins=50, alpha=0.6, label="Normal", color="green")
-    ax.hist(mean_dists[binary_true == 1], bins=50, alpha=0.6, label="Anomaly", color="red")
-    ax.axvline(knn_cfg.get("anomaly_threshold", 0.5), color="black", ls="--", label="Threshold")
-    ax.set_xlabel("Mean k-NN Distance")
-    ax.set_title("Anomaly Score Distribution")
-    ax.legend()
+    fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=(10, 8), sharex=False)
+    ax_a.hist(binary_probs[binary_true == 0], bins=50, alpha=0.6, label="Normal", color="green")
+    ax_a.hist(binary_probs[binary_true == 1], bins=50, alpha=0.6, label="Anomaly", color="red")
+    ax_a.axvline(delta, color="black", ls="--", label=f"δ={delta}")
+    ax_a.set_xlabel("P(anomaly) — fraction of anomaly neighbours")
+    ax_a.set_title("Binary score (same as AUROC / Bommes §IV-B)")
+    ax_a.legend()
+    ax_b.hist(mean_dists[binary_true == 0], bins=50, alpha=0.6, label="Normal", color="green")
+    ax_b.hist(mean_dists[binary_true == 1], bins=50, alpha=0.6, label="Anomaly", color="red")
+    ax_b.set_xlabel("Mean k-NN distance (cosine space)")
+    ax_b.set_title("Mean neighbour distance (diagnostic; scale unrelated to δ)")
+    ax_b.legend()
     plt.tight_layout()
     fig.savefig(plot_dir / "anomaly_histogram.png", dpi=pcfg.get("dpi", 150))
     plt.close(fig)
